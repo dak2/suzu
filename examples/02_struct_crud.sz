@@ -1,0 +1,95 @@
+// Example 2: CRUD on structs
+
+struct User derives(Printable) {
+    id: Int,
+    name: String,
+    age: Int,
+}
+
+struct Users {
+    items: Array[User],
+    next_id: Int,
+}
+
+impl Users {
+    fn new() -> Users {
+        return Users(items: [], next_id: 1)
+    }
+
+    fn create(mut self, take name: String, age: Int) -> Int {
+        var id = self.next_id
+        self.next_id += 1
+        self.items.push(User(id: id, name: take name, age: age))
+        return id
+    }
+
+    fn index_of(self, id: Int) -> Int? {
+        return self.items.find_index(|u| { return u.id == id })
+    }
+
+    fn find(self, id: Int) -> borrow User? {
+        var i = self.index_of(id) else {
+            return none
+        }
+        return self.items.get(i)
+    }
+
+    fn find_mut(mut self, id: Int) -> mut User? {
+        var i = self.index_of(id) else {
+            return none
+        }
+        return self.items.get_mut(i)
+    }
+
+    fn rename(mut self, id: Int, take name: String) -> Bool {
+        with u = self.find_mut(id) else {
+            return false
+        }
+        u.name = take name
+        return true
+    }
+
+    fn delete(mut self, id: Int) -> User? {
+        var i = self.index_of(id) else {
+            return none
+        }
+        return some(self.items.take_at(i))
+    }
+}
+
+fn main() {
+    var users = Users.new()
+
+    var name = String.from("alice")
+    var alice = users.create(take name, 30)
+
+    var bob = users.create(String.from("bob"), 25)
+
+    match users.find(alice) {
+        some(u) => print(u),
+        none => print("not found"),
+    }
+
+    var new_name = String.from("alicia")
+    if !users.rename(alice, take new_name) {
+        print("rename failed")
+    }
+
+    {
+        with u = users.find_mut(bob) else {
+            panic("bob was just created")
+        }
+        u.age += 1
+        print(u.name)
+    }
+
+    var removed = users.delete(bob).expect("bob is still there")
+    print("removed \(removed.name)")
+    print(users.items.size())
+}
+
+// Expected output:
+// User(id: 1, name: alice, age: 30)
+// bob
+// removed bob
+// 1

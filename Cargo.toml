@@ -1,0 +1,16 @@
+[package]
+name = "suzu"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A GC-free systems language with second-class borrows"
+repository = "https://github.com/dak2/suzu"
+publish = false
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

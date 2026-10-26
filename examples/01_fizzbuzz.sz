@@ -1,0 +1,65 @@
+// Example 1: FizzBuzz and word count
+
+fn fizzbuzz(n: Int) -> String {
+    if n % 15 == 0 {
+        return "FizzBuzz"
+    }
+    if n % 3 == 0 {
+        return "Fizz"
+    }
+    if n % 5 == 0 {
+        return "Buzz"
+    }
+    return n.to_string()
+}
+
+fn count_words(text: String) -> Map[String, Int] {
+    var counts: Map[String, Int] = Map()
+    for w in text.split(" ") {
+        if w.is_empty() {
+            continue
+        }
+        with n = counts.get_mut(w) else {
+            counts.insert(w.clone(), 1)
+            continue
+        }
+        n += 1
+    }
+    return counts
+}
+
+fn main() {
+    for i in range(1, 16) {
+        print(fizzbuzz(i))
+    }
+
+    var counts = count_words("the quick fox jumps over the lazy dog the end")
+    for e in counts {
+        print("\(e.key): \(e.value)")
+    }
+}
+
+// Expected output (Map iterates in key order):
+// 1
+// 2
+// Fizz
+// 4
+// Buzz
+// Fizz
+// 7
+// 8
+// Fizz
+// Buzz
+// 11
+// Fizz
+// 13
+// 14
+// FizzBuzz
+// dog: 1
+// end: 1
+// fox: 1
+// jumps: 1
+// lazy: 1
+// over: 1
+// quick: 1
+// the: 3

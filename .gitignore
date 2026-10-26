@@ -1,0 +1,5 @@
+/target
+/notes
+*.o
+*.snap.new
+.DS_Store

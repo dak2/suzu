@@ -1,0 +1,87 @@
+// Example 3: aggregation with for and block arguments
+
+struct Sale {
+    item: String,
+    category: String,
+    price: Int,
+    qty: Int,
+}
+
+fn subtotal(s: Sale) -> Int {
+    return s.price * s.qty
+}
+
+fn total(sales: Array[Sale]) -> Int {
+    var sum = 0
+    for s in sales {
+        sum += subtotal(s)
+    }
+    return sum
+}
+
+fn sum_if(sales: Array[Sale], pred: block(Sale) -> Bool) -> Int {
+    var sum = 0
+    for s in sales {
+        if pred(s) {
+            sum += subtotal(s)
+        }
+    }
+    return sum
+}
+
+fn apply_discount(mut sales: Array[Sale], percent: Int) {
+    for mut s in sales {
+        s.price = s.price * (100 - percent) / 100
+    }
+}
+
+fn best_index(sales: Array[Sale]) -> Int? {
+    var best: Int? = none
+    var best_value = 0
+    for i in range(0, sales.size()) {
+        var v = subtotal(sales.at(i))
+        if best == none || v > best_value {
+            best = some(i)
+            best_value = v
+        }
+    }
+    return best
+}
+
+fn main() {
+    var sales: Array[Sale] = []
+    sales.push(Sale(item: "apple", category: "fruit", price: 120, qty: 3))
+    sales.push(Sale(item: "pen", category: "stationery", price: 200, qty: 1))
+    sales.push(Sale(item: "melon", category: "fruit", price: 800, qty: 1))
+
+    print("total = \(total(sales))")
+
+    var fruit = String.from("fruit")
+    var fruit_total = sum_if(sales, |s| { return s.category == fruit })
+    print("fruit = \(fruit_total)")
+
+    var count = 0
+    sales.each(|s| {
+        if s.qty > 1 {
+            count += 1
+        }
+    })
+    print("bulk = \(count)")
+
+    apply_discount(mut sales, 10)
+    print("after discount = \(total(sales))")
+
+    var i = best_index(sales).expect("sales is not empty")
+    print("best = \(sales.at(i).item)")
+
+    var names = sales.map(|s| { return s.item.clone() })
+    print(names.join(", "))
+}
+
+// Expected output:
+// total = 1360
+// fruit = 1160
+// bulk = 1
+// after discount = 1224
+// best = melon
+// apple, pen, melon

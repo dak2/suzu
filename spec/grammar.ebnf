@@ -1,0 +1,138 @@
+(* Suzu grammar.
+   Every rule must be decidable with at most 2 tokens of lookahead and no type information.
+   { x } = zero or more, [ x ] = optional. NL = newline token. *)
+
+(* ---------- Lexical ---------- *)
+
+(* Newlines:
+   - Inside ( or [ newlines are ignored; at top level or inside { they become NL.
+   - No NL after a line ending in a binary operator , ( [ { = -> => .
+   - No NL before a line starting with "." *)
+
+comment     = "//" { any_char_except_newline } ;
+
+IDENT       = ( letter | "_" ) { letter | digit | "_" } ;
+letter      = "a".."z" | "A".."Z" ;
+digit       = "0".."9" ;
+
+INT         = dec_int | hex_int | bin_int ;
+dec_int     = digit { digit | "_" } ;
+hex_int     = "0x" hex_digit { hex_digit | "_" } ;
+bin_int     = "0b" ( "0" | "1" ) { "0" | "1" | "_" } ;
+FLOAT       = dec_int "." dec_int [ ( "e" | "E" ) [ "+" | "-" ] dec_int ] ;
+
+STRING      = '"' { str_char | escape | interp } '"' ;
+escape      = "\\" ( "n" | "t" | "r" | "0" | "\\" | '"' | "u{" hex_digit { hex_digit } "}" ) ;
+interp      = "\\(" expr ")" ;
+
+(* Keywords:
+   fn struct enum impl const pub var with if else while for in match return break continue
+   mut take borrow self block where derives layout scope co true false *)
+
+(* ---------- Items ---------- *)
+
+file        = { NL } { item { NL } } EOF ;
+item        = fn_def | struct_def | enum_def | impl_def | const_def ;
+
+fn_def      = [ "pub" ] "fn" IDENT [ generics ] "(" [ params ] ")" [ ret_type ] [ where_clause ] block ;
+params      = param { "," param } [ "," ] ;
+param       = self_param | [ "mut" | "take" ] IDENT ":" type ;
+self_param  = [ "mut" | "take" ] "self" ;
+ret_type    = "->" [ "borrow" | "mut" ] type ;
+
+generics    = "[" gparam { "," gparam } [ "," ] "]" ;
+gparam      = IDENT [ ":" bounds ] ;
+bounds      = type_path { "+" type_path } ;
+where_clause = "where" where_item { "," where_item } ;
+where_item  = IDENT ":" bounds ;
+
+struct_def  = [ "pub" ] "struct" IDENT [ generics ] [ derives ] [ layout ] "{" fields "}" ;
+fields      = [ field { sep field } [ sep ] ] ;
+field       = [ "pub" ] IDENT ":" type ;
+derives     = "derives" "(" type_path { "," type_path } ")" ;
+layout      = "layout" "(" IDENT ")" ;
+
+enum_def    = [ "pub" ] "enum" IDENT [ generics ] [ derives ] "{" variants "}" ;
+variants    = [ variant { sep variant } [ sep ] ] ;
+variant     = IDENT [ "(" type { "," type } ")" ] ;
+
+impl_def    = "impl" [ generics ] type [ "for" type ] [ where_clause ] "{" { NL } { fn_def { NL } } "}" ;
+const_def   = [ "pub" ] "const" IDENT ":" type "=" expr ;
+
+sep         = "," | NL ;
+
+(* ---------- Types ---------- *)
+
+type        = type_path [ type_args ] [ "?" ]
+            | "block" "(" [ param_ty { "," param_ty } ] ")" [ "->" type ]
+            | "fn" "(" [ param_ty { "," param_ty } ] ")" [ "->" type ] ;
+type_path   = IDENT { "." IDENT } ;
+type_args   = "[" type { "," type } [ "," ] "]" ;
+param_ty    = [ "mut" | "take" ] type ;
+
+(* ---------- Statements ---------- *)
+
+block       = "{" { NL } [ stmt { NL stmt } ] { NL } "}" ;
+
+stmt        = var_stmt | with_stmt | return_stmt | "break" | "continue"
+            | if_stmt | while_stmt | for_stmt | co_stmt | block | expr_stmt ;
+
+var_stmt    = "var" IDENT [ ":" type ] [ "=" expr [ else_clause ] ] ;
+with_stmt   = "with" IDENT "=" expr [ else_clause ] ;
+else_clause = "else" [ "|" IDENT "|" ] block ;
+return_stmt = "return" [ expr ] ;
+
+if_stmt     = "if" expr block [ "else" ( if_stmt | block ) ] ;
+while_stmt  = "while" expr block ;
+for_stmt    = "for" [ "mut" ] IDENT "in" expr block ;
+co_stmt     = "co" postfix_expr ;
+
+expr_stmt   = expr [ assign_op expr ] ;
+assign_op   = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+(* ---------- Expressions (lowest precedence first) ---------- *)
+
+expr        = or_expr ;
+or_expr     = and_expr { "||" and_expr } ;
+and_expr    = cmp_expr { "&&" cmp_expr } ;
+cmp_expr    = bor_expr [ cmp_op bor_expr ] ;              (* comparisons do not chain *)
+cmp_op      = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
+bor_expr    = bxor_expr { "|" bxor_expr } ;
+bxor_expr   = band_expr { "^" band_expr } ;
+band_expr   = shift_expr { "&" shift_expr } ;
+shift_expr  = add_expr { ( "<<" | ">>" ) add_expr } ;
+add_expr    = mul_expr { ( "+" | "-" ) mul_expr } ;
+mul_expr    = unary_expr { ( "*" | "/" | "%" ) unary_expr } ;
+unary_expr  = ( "-" | "!" | "~" ) unary_expr
+            | "take" postfix_expr
+            | postfix_expr ;
+
+postfix_expr = primary { postfix } ;
+postfix     = "." IDENT
+            | "(" [ args ] ")"
+            | "[" bracket_arg { "," bracket_arg } [ "," ] "]"   (* index or type arguments *)
+            | "?" ;
+bracket_arg = "fn" "(" [ param_ty { "," param_ty } ] ")" [ "->" type ]
+            | "block" "(" [ param_ty { "," param_ty } ] ")" [ "->" type ]
+            | expr ;
+
+args        = arg { "," arg } [ "," ] ;
+arg         = [ IDENT ":" ] [ "mut" ] expr ;               (* LL(2): IDENT ":" *)
+
+primary     = INT | FLOAT | STRING | "true" | "false" | IDENT | "self"
+            | "(" expr ")" | array_lit | block_lit | match_expr | scope_expr ;
+
+array_lit   = "[" [ expr { "," expr } [ "," ] ] "]" ;
+block_lit   = "|" [ bparam { "," bparam } ] "|" block | "||" block ;
+bparam      = [ "mut" | "take" ] IDENT ;
+
+match_expr  = "match" expr "{" { NL } [ arm { sep arm } [ sep ] ] "}" ;
+arm         = pattern "=>" ( block | "return" [ expr ] | "break" | "continue" | expr ) ;
+
+scope_expr  = "scope" [ "(" [ args ] ")" ] block ;
+
+(* ---------- Patterns ---------- *)
+
+pattern     = "_" | lit_pattern | path_pattern [ "(" [ pattern { "," pattern } [ "," ] ] ")" ] ;
+lit_pattern = [ "-" ] INT | STRING | "true" | "false" ;
+path_pattern = IDENT { "." IDENT } ;
