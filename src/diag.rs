@@ -25,6 +25,9 @@ impl Diagnostic {
         } else {
             line_end
         };
+        // A span can start on the `\r` or `\n` that was just stripped from the
+        // line, so `start` must not be allowed past `line_end`.
+        let start = start.min(line_end);
         let line = &source[line_start..line_end];
         let col = source[line_start..start].chars().count() + 1;
         let end = (self.span.end as usize).clamp(start, line_end);
@@ -92,6 +95,24 @@ mod tests {
             d.render("a.sz", src),
             "error: expected expression\n --> a.sz:2:12\n  |\n2 |     foo(1 +)\n  |            ^\n"
         );
+    }
+
+    #[test]
+    fn span_on_the_newline_of_a_crlf_line_does_not_panic() {
+        let src = "fn f()\r\n{\r\n}\r\n";
+        let at = src.find('\n').unwrap();
+        let d = Diagnostic::error("expected `{`", Span::new(at, at + 1));
+        assert_eq!(
+            d.render("a.sz", src),
+            "error: expected `{`\n --> a.sz:1:7\n  |\n1 | fn f()\n  |       ^\n"
+        );
+    }
+
+    #[test]
+    fn span_at_eof_after_a_trailing_cr_does_not_panic() {
+        let src = "fn f() {\r";
+        let d = Diagnostic::error("expected `}`", Span::new(src.len(), src.len()));
+        d.render("a.sz", src);
     }
 
     #[test]

@@ -272,7 +272,7 @@ pub enum ExprKind {
         arms: Vec<Arm>,
     },
     Scope {
-        args: Option<Vec<Arg>>,
+        args: Vec<Arg>,
         body: Block,
     },
     Unary {

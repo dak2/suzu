@@ -529,8 +529,8 @@ impl Lexer<'_> {
                 self.pos = save;
             }
         }
-        self.check_suffix(start);
         let text = self.digits_text(start);
+        self.check_suffix(start);
         match text.parse::<f64>() {
             Ok(value) if value.is_finite() => TokenKind::Float(value),
             _ => {
@@ -599,7 +599,7 @@ impl Lexer<'_> {
                     let esc_start = self.pos - 1;
                     // Left for the next iteration: an escape must not swallow
                     // the newline that ends an unterminated string.
-                    if matches!(self.peek(), None | Some('\n')) {
+                    if matches!(self.peek(), None | Some('\n' | '\r')) {
                         continue;
                     }
                     match self.bump() {
@@ -988,6 +988,22 @@ mod tests {
         let messages: Vec<_> = diags.iter().map(|d| d.message.as_str()).collect();
         assert_eq!(messages, ["unterminated string literal"]);
         assert!(tokens.iter().any(|t| t.kind == Ident("y".into())));
+    }
+
+    #[test]
+    fn backslash_at_end_of_a_crlf_line_leaves_the_string_unterminated() {
+        let (_, diags) = lex("x = \"abc\\\r\ny = 2\r\n");
+        let messages: Vec<_> = diags.iter().map(|d| d.message.as_str()).collect();
+        assert_eq!(messages, ["unterminated string literal"]);
+    }
+
+    #[test]
+    fn invalid_float_suffix_is_reported_once() {
+        for src in ["x = 1.5abc\n", "y = 2.0e\n"] {
+            let (_, diags) = lex(src);
+            let messages: Vec<_> = diags.iter().map(|d| d.message.as_str()).collect();
+            assert_eq!(messages, ["invalid number literal"], "{src:?}");
+        }
     }
 
     #[test]

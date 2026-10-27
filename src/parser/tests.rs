@@ -54,7 +54,7 @@ fn sx(e: &Expr) -> String {
             format!("(block |{}| {})", params.join(","), body.stmts.len())
         }
         ExprKind::Match { scrutinee, arms } => format!("(match {} {})", sx(scrutinee), arms.len()),
-        ExprKind::Scope { args, .. } => format!("(scope {})", args.as_ref().map_or(0, Vec::len)),
+        ExprKind::Scope { args, .. } => format!("(scope {})", args.len()),
         ExprKind::Unary { op, operand } => {
             let op = match op {
                 UnaryOp::Neg => "-",
@@ -617,5 +617,27 @@ fn else_on_its_own_line_explains_the_rule() {
     assert_eq!(
         errors("fn f() {\n    if a {\n    }\n    else {\n    }\n}\n"),
         vec!["`else` must be on the same line as the closing `}`"]
+    );
+}
+
+#[test]
+fn items_on_one_line_are_all_parsed() {
+    let file = parse_ok("fn a() {} fn b() {}\n");
+    assert_eq!(file.items.len(), 2);
+}
+
+#[test]
+fn trailing_tokens_after_an_item_are_reported() {
+    assert_eq!(
+        errors("fn a() {} 1\n"),
+        vec!["expected a newline after the item, found integer literal"]
+    );
+}
+
+#[test]
+fn empty_derives_is_rejected() {
+    assert_eq!(
+        errors("struct A derives() {\n}\n"),
+        vec!["derives list is empty"]
     );
 }

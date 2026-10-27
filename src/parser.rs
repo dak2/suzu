@@ -66,6 +66,10 @@ impl<'a> Parser<'a> {
         self.at_column_zero() && self.at_item_start()
     }
 
+    fn at_callable_type(&self) -> bool {
+        self.at_kw(Keyword::Fn) || self.at_kw(Keyword::Block)
+    }
+
     fn at_item_start(&self) -> bool {
         let item_kw = |kind: &TokenKind| {
             matches!(
@@ -229,7 +233,10 @@ impl<'a> Parser<'a> {
             match self.item() {
                 Ok(item) => {
                     items.push(item);
-                    if !self.at(&TokenKind::Eof) && !self.at(&TokenKind::Newline) {
+                    if !self.at(&TokenKind::Eof)
+                        && !self.at(&TokenKind::Newline)
+                        && !self.at_item_start()
+                    {
                         self.error_expected("a newline after the item");
                         self.skip_to_next_item();
                     }
@@ -415,7 +422,11 @@ impl<'a> Parser<'a> {
             return Ok(Vec::new());
         }
         self.expect(&TokenKind::LParen)?;
-        let (paths, _) = self.comma_list(&TokenKind::RParen, Self::path)?;
+        let open = self.prev_span();
+        let (paths, close) = self.comma_list(&TokenKind::RParen, Self::path)?;
+        if paths.is_empty() {
+            return Err(self.error("derives list is empty", open.to(close)));
+        }
         Ok(paths)
     }
 
@@ -541,7 +552,7 @@ impl<'a> Parser<'a> {
 
     fn ty_unguarded(&mut self) -> PResult<Type> {
         let start = self.span();
-        if self.at_kw(Keyword::Fn) || self.at_kw(Keyword::Block) {
+        if self.at_callable_type() {
             return self.callable_type();
         }
         let path = self.path()?;
@@ -906,7 +917,7 @@ impl<'a> Parser<'a> {
     }
 
     fn bracket_arg(&mut self) -> PResult<BracketArg> {
-        if self.at_kw(Keyword::Fn) || self.at_kw(Keyword::Block) {
+        if self.at_callable_type() {
             Ok(BracketArg::Type(self.callable_type()?))
         } else {
             Ok(BracketArg::Expr(self.expr()?))
@@ -966,9 +977,9 @@ impl<'a> Parser<'a> {
             TokenKind::Kw(Keyword::Scope) => {
                 self.bump();
                 let args = if self.eat(&TokenKind::LParen) {
-                    Some(self.comma_list(&TokenKind::RParen, Self::arg)?.0)
+                    self.comma_list(&TokenKind::RParen, Self::arg)?.0
                 } else {
-                    None
+                    Vec::new()
                 };
                 let body = self.block()?;
                 ExprKind::Scope { args, body }
