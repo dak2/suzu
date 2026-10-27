@@ -1,5 +1,3 @@
-//! The `suzu` command.
-
 use std::process::ExitCode;
 
 const USAGE: &str = "\
@@ -9,6 +7,7 @@ commands:
   run <file.sz>     run a program with the interpreter
   build <file.sz>   compile to native code (Cranelift)
   test              run tests
+  parse <file.sz>   print the syntax tree (for debugging the parser)
   new <name>        create a new project
   help              print this message
   version           print the version
@@ -19,6 +18,7 @@ enum Command {
     Run(String),
     Build(String),
     Test,
+    Parse(String),
     New(String),
     Help,
     Version,
@@ -50,6 +50,7 @@ fn parse_args(args: &[String]) -> Result<Command, CliError> {
         "run" => operand("run", "a file name").map(Command::Run),
         "build" => operand("build", "a file name").map(Command::Build),
         "test" => Ok(Command::Test),
+        "parse" => operand("parse", "a file name").map(Command::Parse),
         "new" => operand("new", "a project name").map(Command::New),
         "help" | "-h" | "--help" => Ok(Command::Help),
         "version" | "-V" | "--version" => Ok(Command::Version),
@@ -62,12 +63,32 @@ fn not_yet(what: &str, milestone: &str) -> ExitCode {
     ExitCode::from(2)
 }
 
+fn parse_file(path: &str) -> ExitCode {
+    let source = match std::fs::read_to_string(path) {
+        Ok(source) => source,
+        Err(e) => {
+            eprintln!("suzu: cannot read {path}: {e}");
+            return ExitCode::from(66);
+        }
+    };
+    let (file, diags) = suzu::parser::parse(&source);
+    if diags.is_empty() {
+        println!("{file:#?}");
+        return ExitCode::SUCCESS;
+    }
+    for d in &diags {
+        eprintln!("{}", d.render(path, &source));
+    }
+    ExitCode::FAILURE
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match parse_args(&args) {
         Ok(Command::Run(_)) => not_yet("run", "M4"),
         Ok(Command::Build(_)) => not_yet("build", "M6"),
         Ok(Command::Test) => not_yet("test", "M4"),
+        Ok(Command::Parse(path)) => parse_file(&path),
         Ok(Command::New(_)) => not_yet("new", "phase 2"),
         Ok(Command::Help) => {
             print!("{USAGE}");
