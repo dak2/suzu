@@ -13,6 +13,7 @@ pub fn parse(source: &str) -> (File, Vec<Diagnostic>) {
 }
 
 const MAX_NESTING: u32 = 128;
+const MAX_CHAIN: usize = 1024;
 
 #[derive(Debug)]
 struct Recover;
@@ -55,6 +56,12 @@ impl<'a> Parser<'a> {
 
     fn at_line_start(&self) -> bool {
         self.pos == 0 || self.tokens[self.pos - 1].kind == TokenKind::Newline
+    }
+
+    fn follows_closing_brace(&self) -> bool {
+        self.pos
+            .checked_sub(2)
+            .is_some_and(|i| self.tokens[i].kind == TokenKind::RBrace)
     }
 
     fn at_column_zero(&self) -> bool {
@@ -169,7 +176,7 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 TokenKind::Eof => return,
                 TokenKind::Newline if self.depth() == depth => return,
-                _ if self.depth() < depth => return,
+                _ if self.depth() < depth || self.at_unindented_item() => return,
                 _ => {}
             }
             self.bump();
@@ -421,8 +428,7 @@ impl<'a> Parser<'a> {
         if !self.eat_kw(Keyword::Derives) {
             return Ok(Vec::new());
         }
-        self.expect(&TokenKind::LParen)?;
-        let open = self.prev_span();
+        let open = self.expect(&TokenKind::LParen)?;
         let (paths, close) = self.comma_list(&TokenKind::RParen, Self::path)?;
         if paths.is_empty() {
             return Err(self.error("derives list is empty", open.to(close)));
@@ -647,10 +653,12 @@ impl<'a> Parser<'a> {
         let start = self.span();
         let kind = match self.peek() {
             TokenKind::Kw(Keyword::Else) => {
-                return Err(self.error(
-                    "`else` must be on the same line as the closing `}`",
-                    self.span(),
-                ));
+                let message = if self.follows_closing_brace() {
+                    "`else` must be on the same line as the closing `}`"
+                } else {
+                    "`else` must be on the same line as the `var` or `with` it belongs to"
+                };
+                return Err(self.error(message, self.span()));
             }
             TokenKind::Kw(Keyword::Var) => {
                 self.bump();
@@ -768,24 +776,40 @@ impl<'a> Parser<'a> {
     }
 
     fn if_stmt(&mut self) -> PResult<IfStmt> {
-        let start = self.expect_kw(Keyword::If)?;
-        let cond = self.expr()?;
-        let then_block = self.block()?;
-        let else_branch = if self.eat_kw(Keyword::Else) {
-            if self.at_kw(Keyword::If) {
-                Some(ElseBranch::If(Box::new(self.nested(Self::if_stmt)?)))
-            } else {
-                Some(ElseBranch::Block(self.block()?))
+        let mut branches = Vec::new();
+        let final_else = loop {
+            let start = self.expect_kw(Keyword::If)?;
+            let cond = self.expr()?;
+            let then_block = self.block()?;
+            branches.push((start, cond, then_block));
+            if !self.eat_kw(Keyword::Else) {
+                break None;
             }
-        } else {
-            None
+            if !self.at_kw(Keyword::If) {
+                break Some(ElseBranch::Block(self.block()?));
+            }
+            if branches.len() >= MAX_CHAIN {
+                return Err(self.error("too many `else if` branches", self.span()));
+            }
         };
-        Ok(IfStmt {
+        let end = self.prev_span();
+        let mut branches = branches.into_iter().rev();
+        let (start, cond, then_block) = branches.next().expect("the loop pushes before breaking");
+        let mut node = IfStmt {
             cond,
             then_block,
-            else_branch,
-            span: start.to(self.prev_span()),
-        })
+            else_branch: final_else,
+            span: start.to(end),
+        };
+        for (start, cond, then_block) in branches {
+            node = IfStmt {
+                cond,
+                then_block,
+                else_branch: Some(ElseBranch::If(Box::new(node))),
+                span: start.to(end),
+            };
+        }
+        Ok(node)
     }
 
     fn expr(&mut self) -> PResult<Expr> {
@@ -794,9 +818,14 @@ impl<'a> Parser<'a> {
 
     fn binary(&mut self, min_prec: u8) -> PResult<Expr> {
         let mut lhs = self.unary_expr()?;
+        let mut chain = 0;
         while let Some((op, prec)) = binary_op(self.peek()) {
             if prec < min_prec {
                 break;
+            }
+            chain += 1;
+            if chain > MAX_CHAIN {
+                return Err(self.error("expression has too many operators", self.span()));
             }
             self.bump();
             let rhs = self.binary(prec + 1)?;
@@ -851,7 +880,12 @@ impl<'a> Parser<'a> {
 
     fn postfix_expr(&mut self) -> PResult<Expr> {
         let mut expr = self.primary()?;
+        let mut chain = 0;
         loop {
+            chain += 1;
+            if chain > MAX_CHAIN {
+                return Err(self.error("expression has too many postfix operators", self.span()));
+            }
             let start = expr.span;
             let kind = match self.peek() {
                 TokenKind::Dot => {

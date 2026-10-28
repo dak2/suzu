@@ -25,8 +25,6 @@ impl Diagnostic {
         } else {
             line_end
         };
-        // A span can start on the `\r` or `\n` that was just stripped from the
-        // line, so `start` must not be allowed past `line_end`.
         let start = start.min(line_end);
         let line = &source[line_start..line_end];
         let col = source[line_start..start].chars().count() + 1;

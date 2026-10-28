@@ -250,7 +250,9 @@ impl Lexer<'_> {
                     self.unterminated_interp(interp_start, diags_before);
                     return None;
                 }
-                if next == Some(')') && open.len() == 1 {
+                if next == Some(')')
+                    && open.iter().rposition(|k| *k == TokenKind::LParen) == Some(0)
+                {
                     self.bump();
                     out.push(Token {
                         kind: TokenKind::RParen,
@@ -669,12 +671,9 @@ impl Lexer<'_> {
     }
 }
 
-fn push_newline(out: &mut Vec<Token>, pos: usize, depth: u32, force: bool) {
-    // `force` is set when a character was dropped from the line: a trailing
-    // operator before it may have been meant as a continuation only because of
-    // the dropped character, and joining the next line onto it hides that line's errors.
+fn push_newline(out: &mut Vec<Token>, pos: usize, depth: u32, char_dropped: bool) {
     match out.last() {
-        Some(t) if t.kind != TokenKind::Newline && (force || !t.kind.continues_line()) => {
+        Some(t) if t.kind != TokenKind::Newline && (char_dropped || !t.kind.continues_line()) => {
             out.push(Token {
                 kind: TokenKind::Newline,
                 span: Span::new(pos, pos + 1),

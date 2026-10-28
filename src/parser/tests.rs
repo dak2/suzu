@@ -579,10 +579,6 @@ fn deep_nesting_is_an_error_not_a_crash() {
             ")".repeat(n)
         ),
         format!("fn f() {{\n    x = {}1\n}}\n", "-".repeat(n)),
-        format!(
-            "fn f() {{\n    if a {{\n    }}{}\n}}\n",
-            " else if a {\n    }".repeat(n)
-        ),
         format!("fn f() {{\n    {}{}\n}}\n", "{".repeat(n), "}".repeat(n)),
         format!("fn f(x: {}Int{}) {{\n}}\n", "A[".repeat(n), "]".repeat(n)),
         format!(
@@ -639,5 +635,108 @@ fn empty_derives_is_rejected() {
     assert_eq!(
         errors("struct A derives() {\n}\n"),
         vec!["derives list is empty"]
+    );
+}
+
+#[test]
+fn long_left_associative_chains_are_an_error_not_a_crash() {
+    let n = 100_000;
+    let cases = [
+        (
+            format!("fn f() {{\n    x = 1{}\n}}\n", " + 1".repeat(n)),
+            "expression has too many operators",
+        ),
+        (
+            format!("fn f() {{\n    x = a{}\n}}\n", ".b".repeat(n)),
+            "expression has too many postfix operators",
+        ),
+        (
+            format!("fn f() {{\n    x = a{}\n}}\n", "?".repeat(n)),
+            "expression has too many postfix operators",
+        ),
+        (
+            format!(
+                "fn f() {{\n    if a {{\n    }}{}\n}}\n",
+                " else if a {\n    }".repeat(n)
+            ),
+            "too many `else if` branches",
+        ),
+    ];
+    for (src, expected) in &cases {
+        let messages = errors(src);
+        assert!(
+            messages.iter().any(|m| m == expected),
+            "{:?}: {messages:?}",
+            &src[..40]
+        );
+    }
+}
+
+#[test]
+fn a_flat_else_if_chain_is_not_nesting() {
+    let src = format!(
+        "fn f() {{\n    if a {{\n    }}{}\n}}\n",
+        " else if a {\n    }".repeat(500)
+    );
+    parse_ok(&src);
+}
+
+#[test]
+fn else_if_chain_keeps_the_final_else_and_spans() {
+    let src = "fn f() {\n    if a {\n    } else if b {\n    } else {\n    }\n}\n";
+    let file = parse_ok(src);
+    let Item::Fn(f) = &file.items[0] else {
+        panic!()
+    };
+    let StmtKind::If(first) = &f.body.stmts[0].kind else {
+        panic!()
+    };
+    let Some(ElseBranch::If(second)) = &first.else_branch else {
+        panic!()
+    };
+    assert!(matches!(second.else_branch, Some(ElseBranch::Block(_))));
+    assert_eq!(first.span.start, src.find("if a").unwrap() as u32);
+    assert_eq!(second.span.start, src.find("if b").unwrap() as u32);
+    assert_eq!(first.span.end, second.span.end);
+}
+
+#[test]
+fn else_after_a_var_on_the_next_line_does_not_mention_a_closing_brace() {
+    assert_eq!(
+        errors("fn f() {\n    var x = g()\n    else {\n        return\n    }\n}\n"),
+        vec!["`else` must be on the same line as the `var` or `with` it belongs to"]
+    );
+}
+
+#[test]
+fn unclosed_match_keeps_the_following_item() {
+    let (file, diags) = parse("fn f() {\n    match x {\n        a => 1\n\nfn g() {\n}\n");
+    assert!(
+        file.items
+            .iter()
+            .any(|i| matches!(i, Item::Fn(f) if f.name.name == "g"))
+    );
+    let messages: Vec<_> = diags.iter().map(|d| d.message.as_str()).collect();
+    assert_eq!(
+        messages,
+        ["expected a pattern, found `fn`", "expected `}`, found `fn`"]
+    );
+}
+
+#[test]
+fn unclosed_struct_keeps_the_following_item() {
+    let (file, _) = parse("struct A {\n    x: Int\n    y Int\n\nfn g() {\n}\n");
+    assert!(
+        file.items
+            .iter()
+            .any(|i| matches!(i, Item::Fn(f) if f.name.name == "g"))
+    );
+}
+
+#[test]
+fn unclosed_bracket_in_an_interpolation_is_reported_by_the_parser() {
+    assert_eq!(
+        errors("fn f() {\n    print(\"\\(a[0)\")\n}\n"),
+        vec!["expected `]`, found `)`"]
     );
 }
