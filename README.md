@@ -10,7 +10,7 @@ fn apply_discount(mut sales: Array[Sale], percent: Int) {
 }
 ```
 
-Status: early design. Nothing runs yet.
+Status: early design. The lexer and parser work; nothing runs yet.
 
 - `spec/design.md`: core design
 - `spec/grammar.ebnf`: grammar
@@ -18,4 +18,5 @@ Status: early design. Nothing runs yet.
 
 ```
 cargo test
+cargo run -- parse examples/01_fizzbuzz.sz   # print the syntax tree
 ```
